@@ -7,7 +7,7 @@ from newsapi import NewsApiClient
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import base64
-import matplotlib.pyplot as plt
+import matplotlib.pyplot    as plt
 from urllib3.exceptions import InsecureRequestWarning
 from urllib3 import disable_warnings
 
@@ -91,6 +91,12 @@ def plot_roberta_sentiment(sentiment):
     ax.pie(scores, labels=labels, autopct='%1.1f%%', colors=['green', 'red'])
     ax.set_title('RoBERTa Sentiment Analysis')
     st.pyplot(fig)
+
+def extract_sentiment(roberta_output):
+    # Assuming roberta_output is a dictionary or a tensor-like object, extract the relevant score.
+    sentiment_score = roberta_output['sentiment_score']  # Modify this based on your model's output
+    return sentiment_score
+
 
 def get_base64_image(image_file):
     with open(image_file, "rb") as f:
@@ -239,7 +245,7 @@ with st.sidebar:
     st.subheader("Actions")
     fetch_data_button = st.button("Fetch Data")
 
-# Main content area
+
 with col1:
     st.markdown('<div class="main-container">', unsafe_allow_html=True)
 
@@ -248,14 +254,16 @@ with col1:
             # Fetch stock data
             data = fetch_stock_data(ALPHA_VANTAGE_API_KEY, symbol, function, interval)
             df = process_data(data, function)
-
-            # Fetch news data
-            news_data = fetch_news(NEWSAPI_API_KEY, symbol, num_articles)
-
+            
             if df is not None:
+                df.index = pd.to_datetime(df.index)
+                df['timestamp'] = df.index  # Creating a 'timestamp' column for merging
                 st.success("Data fetched successfully!")
+                
+                # Calculating Moving Average
                 df[f'MA{ma_window}'] = df['Close'].rolling(window=ma_window).mean()
 
+                # Bollinger Bands Calculation
                 if show_bollinger_bands:
                     df['BB_upper'] = df[f'MA{ma_window}'] + 2 * df['Close'].rolling(window=ma_window).std()
                     df['BB_lower'] = df[f'MA{ma_window}'] - 2 * df['Close'].rolling(window=ma_window).std()
@@ -263,6 +271,7 @@ with col1:
                 st.subheader(f"{symbol} Data ({function})")
                 st.write(df)
 
+                # Plotly Candlestick Chart
                 st.subheader("Candlestick Chart with Plotly")
                 fig = go.Figure(data=[go.Candlestick(
                     x=df.index,
@@ -287,6 +296,8 @@ with col1:
                 )
                 st.plotly_chart(fig)
 
+                # mplfinance Candlestick Chart
+                
                 st.subheader("Candlestick Chart with mplfinance")
                 ap = [mpf.make_addplot(df[f'MA{ma_window}'], color='orange')]
                 if show_bollinger_bands:
@@ -296,11 +307,66 @@ with col1:
                 fig_mpf, ax = mpf.plot(df, type='candle', style='charles', title=f'{symbol} Candlestick Chart ({function})', ylabel='Price', addplot=ap, returnfig=True)
                 st.pyplot(fig_mpf)
 
+                # Closing Prices
                 st.subheader("Closing Prices")
                 st.line_chart(df['Close'])
+
+                news_data = fetch_news(NEWSAPI_API_KEY, symbol, num_articles)
+                articles = news_data.get("articles", [])
+                df_news = pd.DataFrame(articles)
+
+                df_news['publishedAt'] = pd.to_datetime(df_news['publishedAt']).dt.tz_localize(None)
+
+                df_news['title'] = df_news['title'].astype(str)
+
+                # VADER Sentiment 
+                df_news['vader_compound'] = df_news['title'].apply(lambda title: analyze_sentiment_vader(title)['compound'])
+
+                # Merge DataFrames on timestamp for VADER
+                merged_df_vader = pd.merge_asof(df.sort_values('timestamp'), df_news.sort_values('publishedAt'), left_on='timestamp', right_on='publishedAt', direction='backward')
+
+                # Calculate price change percentage for VADER
+                merged_df_vader['price_change'] = merged_df_vader['Close'].pct_change()
+
+                #st.write(merged_df_vader)
+
+                #correlation for VADER
+                st.subheader("VADER Sentiment Score vs. Stock Price Change")
+                fig_vader, ax_vader = plt.subplots(figsize=(10, 6))
+                ax_vader.scatter(merged_df_vader['vader_compound'], merged_df_vader['price_change'])
+                ax_vader.set_title("VADER Sentiment Score vs. Stock Price Change")
+                ax_vader.set_xlabel("Sentiment Score")
+                ax_vader.set_ylabel("Stock Price Change (%)")
+                st.pyplot(fig_vader)
+
+                # RoBERTa Sentiment 
+                df_news['roberta_sentiment'] = df_news['title'].apply(lambda title: analyze_sentiment_roberta(title))
+
+                df_news['roberta_sentiment_score'] = df_news['roberta_sentiment'].apply(extract_sentiment)
+                st.write(extract_sentiment)
+
+                st.write(df_news)
+                # Ensure the RoBERTa sentiment score is a scalar (e.g., float)
+                df_news['roberta_sentiment'] = df_news['roberta_sentiment'].apply(lambda x: float(x) if isinstance(x, (int, float)) else None)
+                
+
+                # Merge DataFrames on timestamp for RoBERTa
+                merged_df_roberta = pd.merge_asof(df.sort_values('timestamp'), df_news.sort_values('publishedAt'), left_on='timestamp', right_on='publishedAt', direction='backward')
+
+                # Calculate price change percentage for RoBERTa
+                merged_df_roberta['price_change'] = merged_df_roberta['Close'].pct_change()
+
+                #st.write(merged_df_roberta)
+                #Visualize the correlation for RoBERTa
+                st.subheader("RoBERTa Sentiment Score vs. Stock Price Change")
+                fig_roberta, ax_roberta = plt.subplots(figsize=(10, 6))
+                ax_roberta.scatter(merged_df_roberta['roberta_sentiment'], merged_df_roberta['price_change'])
+                ax_roberta.set_title("RoBERTa Sentiment Score vs. Stock Price Change")
+                ax_roberta.set_xlabel("Sentiment Score")
+                ax_roberta.set_ylabel("Stock Price Change (%)")
+                st.pyplot(fig_roberta)
             else:
                 st.error("Error fetching data or data not available.")
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
