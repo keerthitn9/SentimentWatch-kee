@@ -26,6 +26,7 @@ except ImportError:
     transformers_available = False
     st.error("Transformers library is not available. Please install it using 'pip install transformers'")
 
+#fetching stock data (numerical)
 def fetch_stock_data(api_key, symbol, function, interval=None):
     if function == 'TIME_SERIES_INTRADAY':
         url = f'https://www.alphavantage.co/query?function={function}&symbol={symbol}&interval={interval}&apikey={api_key}'
@@ -35,6 +36,7 @@ def fetch_stock_data(api_key, symbol, function, interval=None):
     data = r.json()
     return data
 
+#fetching different time series data
 def process_data(data, function):
     time_series_key = {
         'TIME_SERIES_INTRADAY': 'Time Series (5min)',
@@ -52,11 +54,13 @@ def process_data(data, function):
     else:
         return None
 
+#fetch news data
 def fetch_news(api_key, query, num_articles=10):
     newsapi = NewsApiClient(api_key=api_key)
     all_articles = newsapi.get_everything(q=query, language='en', sort_by='relevancy', page_size=num_articles)
     return all_articles
 
+#roberta, vader sentiment functions
 def analyze_sentiment_vader(text):
     sid = SentimentIntensityAnalyzer()
     sentiment = sid.polarity_scores(text)
@@ -70,6 +74,7 @@ def analyze_sentiment_roberta(text):
     else:
         return "Transformers library not available"
 
+#plotting
 def plot_vader_sentiment(sentiment):
     labels = ['Negative', 'Neutral', 'Positive']
     scores = [sentiment['neg'], sentiment['neu'], sentiment['pos']]
